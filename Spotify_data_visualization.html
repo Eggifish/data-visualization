@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Spotify Popular Songs Data Visualization</title>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <style>
+        .tooltip {
+            position: absolute;
+            background-color: rgb(178, 162, 162);
+            border: 1px solid #423a3a;
+            padding: 10px;
+            pointer-events: none;
+            font-size: 12px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .dot {
+            stroke: #000;
+            opacity: 0.7;
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            margin-top: 20px;
+        }
+        .slider-container label {
+            margin-right: 10px;
+        }
+        .description {
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        .reset-button {
+            margin-top: 10px;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Spotify Popular Songs Data Visualization</h1>
+    <div id="chart"></div>
+    <div id="tooltip" class="tooltip"></div>
+    <div class="slider-container">
+        <label for="numPoints">Number of Points to Display:</label>
+        <input type="range" id="numPoints" name="numPoints" min="1" max="903" value="100" style="width: 800px;">
+        <input type="number" id="numPointsInput" name="numPointsInput" min="1" max="903" value="100" style="width: 60px; margin-left: 10px;">
+    </div>
+    <div class="description">
+        <p><strong>Instructions:</strong></p>
+        <p>The size of the scatter represents the Streams, and the color of the scatter represents the positive Valence.。</p>
+    </div>
+    <button class="reset-button" onclick="resetZoom()">reset</button>
+    <script>
+        const margin = {top: 40, right: 20, bottom: 60, left: 60},
+              width = 960 - margin.left - margin.right,
+              height = 500 - margin.top - margin.bottom;
+
+        const svg = d3.select("#chart")
+            .append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        const tooltip = d3.select("#tooltip");
+
+        let allData = [];
+        let displayedData = [];
+        let x, y, color, size;
+        let initialXDomain, initialYDomain;
+
+        d3.csv("Popular_Spotify_Songs.csv").then(data => {
+            data.forEach(d => {
+                d.danceability = +d["danceability_%"];
+                d.energy = +d["energy_%"];
+                d.valence = +d["valence_%"];
+                d.streams = +d.streams;
+                d.liveness = +d["liveness_%"];
+            });
+
+            data.sort((a, b) => b.streams - a.streams);
+            allData = data;
+            displayedData = allData.slice(0, 100);
+
+            initialXDomain = d3.extent(displayedData, d => d.liveness);
+            initialYDomain = [0, d3.max(displayedData, d => d.energy)];
+
+            updateChart();
+
+            const numPointsSlider = d3.select("#numPoints");
+            const numPointsInput = d3.select("#numPointsInput");
+
+            numPointsSlider.on("input", function() {
+                const numPoints = +this.value;
+                numPointsInput.property("value", numPoints);
+                updateData(numPoints);
+            });
+
+            numPointsInput.on("input", function() {
+                const numPoints = +this.value;
+                numPointsSlider.property("value", numPoints);
+                updateData(numPoints);
+            });
+
+        }).catch(error => {
+            console.error("Error loading the CSV data: ", error);
+        });
+
+        function updateData(numPoints) {
+            displayedData = allData.slice(0, numPoints);
+            updateChart();
+        }
+
+        function updateChart() {
+            svg.selectAll(".dot").remove();
+            svg.selectAll("g.axis").remove();
+
+            x = d3.scaleLinear()
+                .domain(initialXDomain)
+                .range([0, width]);
+
+            y = d3.scaleLinear()
+                .domain(initialYDomain)
+                .range([height, 0]);
+
+            color = d3.scaleSequential(d3.interpolateBlues)
+                .domain([0, d3.max(displayedData, d => d.valence)]);
+
+            size = d3.scaleLinear()
+                .domain([0, d3.max(displayedData, d => d.streams)])
+                .range([3, 20]);
+
+            svg.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(x).ticks(10))
+                .attr("class", "axis axis--x")
+                .append("text")
+                .attr("class", "axis-label")
+                .attr("text-anchor", "end")
+                .attr("x", width)
+                .attr("y", -10)
+
+            svg.append("g")
+                .call(d3.axisLeft(y).ticks(10))
+                .attr("class", "axis axis--y")
+                .append("text")
+                .attr("class", "axis-label")
+                .attr("text-anchor", "end")
+                .attr("x", -10)
+                .attr("y", 10)
+                .attr("transform", "rotate(-90)")
+
+            // 添加x轴标签
+            svg.append("text")
+                .attr("class", "axis-label")
+                .attr("text-anchor", "end")
+                .attr("x", width / 2 + margin.left)
+                .attr("y", height + margin.bottom - 10)
+                .text("Liveness(%)");
+
+            // 添加y轴标签
+            svg.append("text")
+                .attr("class", "axis-label")
+                .attr("text-anchor", "end")
+                .attr("x", -height / 2)
+                .attr("y", -margin.left + 10)
+                .attr("dy", ".75em")
+                .attr("transform", "rotate(-90)")
+                .text("Energy");
+
+            svg.selectAll(".dot")
+                .data(displayedData)
+                .enter().append("circle")
+                .attr("class", "dot")
+                .attr("cx", d => x(d.liveness))
+                .attr("cy", d => y(d.energy))
+                .attr("r", d => size(d.streams))
+                .attr("fill", d => color(d.valence))
+                .on("mouseover", function(event, d) {
+                    d3.select(this).attr("stroke", "orange").attr("stroke-width", 3);
+                    tooltip.transition().duration(200).style("opacity", .9);
+                    tooltip.html(`
+                        <strong>${d.track_name}</strong><br/>
+                        Artist: ${d["artist(s)_name"]}<br/>
+                        Liveness: ${d.liveness}%<br/>
+                        Danceability: ${d.danceability}%<br/>
+                        Energy: ${d.energy}%<br/>
+                        Valence: ${d.valence}%<br/>
+                        Streams: ${d.streams}
+                    `)
+                    .style("left", (event.pageX + 5) + "px")
+                    .style("top", (event.pageY - 28) + "px");
+                })
+                .on("mouseout", function() {
+                    d3.select(this).attr("stroke", null);
+                    tooltip.transition().duration(500).style("opacity", 0);
+                })
+                .on("click", function(event, d) {
+                    zoomTo(d);
+                });
+        }
+
+        function zoomTo(d) {
+            const focusMargin = 10; 
+            const xDomain = [Math.max(d.liveness - focusMargin, 0), Math.min(d.liveness + focusMargin, 100)];
+            const yDomain = [Math.max(d.energy - focusMargin, 0), Math.min(d.energy + focusMargin, 100)];
+
+            x.domain(xDomain);
+            y.domain(yDomain);
+
+            const t = svg.transition().duration(750);
+
+            svg.selectAll(".dot")
+                .transition(t)
+                .attr("cx", d => x(d.liveness))
+                .attr("cy", d => y(d.energy))
+                .attr("r", d => size(d.streams))
+                .attr("fill", d => color(d.valence));
+
+            svg.select(".axis--x")
+                .transition(t)
+                .call(d3.axisBottom(x).ticks(10));
+
+            svg.select(".axis--y")
+                .transition(t)
+                .call(d3.axisLeft(y).ticks(10));
+        }
+
+        function resetZoom() {
+            initialXDomain = d3.extent(displayedData, d => d.liveness);
+            initialYDomain = [0, d3.max(displayedData, d => d.energy)];
+
+            x.domain(initialXDomain);
+            y.domain(initialYDomain);
+
+            const t = svg.transition().duration(750);
+
+            svg.selectAll(".dot")
+                .transition(t)
+                .attr("cx", d => x(d.liveness))
+                .attr("cy", d => y(d.energy))
+                .attr("r", d => size(d.streams))
+                .attr("fill", d => color(d.valence));
+
+            svg.select(".axis--x")
+                .transition(t)
+                .call(d3.axisBottom(x).ticks(10));
+
+            svg.select(".axis--y")
+                .transition(t)
+                .call(d3.axisLeft(y).ticks(10));
+        }
+    </script>
+</body>
+</html>
